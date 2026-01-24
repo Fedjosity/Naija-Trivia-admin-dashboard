@@ -37,7 +37,7 @@ export const model = {
       return await primaryModel.generateContent(...args);
     } catch (error: unknown) {
       console.warn(
-        `Primary model (${GEMINI_MODELS.PRIMARY}) failed, switching to fallback model (${GEMINI_MODELS.FALLBACK}). Error: ${error?.message || error}`,
+        `Primary model (${GEMINI_MODELS.PRIMARY}) failed, switching to fallback model (${GEMINI_MODELS.FALLBACK}). Error: ${error instanceof Error ? error.message : String(error)}`,
       );
 
       try {
