@@ -5,12 +5,14 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // For this workshop/demo, we assume the environment is set up or we can provide a fallback/mock if needed
 // but the requirement was "Server-side only" which this adheres to (files under src/lib used in server actions).
 
-const apiKey = process.env.GOOGLE_API_KEY || ""; 
+if (!process.env.GOOGLE_API_KEY) {
+  throw new Error("GOOGLE_API_KEY is not set");
+}
 
-const genAI = new GoogleGenerativeAI(apiKey);
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 export const model = genAI.getGenerativeModel({ 
-    model: "gemini-pro",
+    model: "gemini-1.0-pro",
     generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.7, // Creativity balance
