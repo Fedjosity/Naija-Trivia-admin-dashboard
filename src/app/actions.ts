@@ -24,7 +24,7 @@ export async function publishDailyPack() {
   
   if (jsonFiles.length === 0) return { success: false, message: "No questions to publish" };
 
-  const questions = [];
+    const questions: Question[] = [];
   for (const file of jsonFiles) {
       const data = await fs.readFile(path.join(approvedDir, file), 'utf-8');
       questions.push(JSON.parse(data));
@@ -69,10 +69,10 @@ export async function generateQuestions(category: string, count: number = 5): Pr
     const questionsRaw = JSON.parse(cleanText);
 
     // Map to ensure IDs and types are correct
-    const questions: Question[] = questionsRaw.map((q: any) => ({
+    const questions: Question[] = (questionsRaw as Question[]).map((q) => ({
         ...q,
         id: crypto.randomUUID(),
-        category: category, // Enforce the requested category
+        category: category as Question['category'],
     }));
 
     return questions;
@@ -116,8 +116,8 @@ export async function generateFullPack(category: string, difficulty: string = 'b
         const text = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
         
         return JSON.parse(text);
-    } catch (e) {
-        console.error("Pack Generation Failed:", e);
+    } catch (error) {
+        console.error("Pack Generation Failed:", error);
         return null;
     }
 }
@@ -131,7 +131,9 @@ export async function saveDraft(question: Question) {
   // Ensure dir exists
   try {
       await fs.mkdir(draftsDir, { recursive: true });
-  } catch (e) {}
+  } catch {
+      // Ignore if exists
+  }
 
   await fs.writeFile(
     path.join(draftsDir, `${question.id}.json`), 
@@ -175,13 +177,14 @@ export async function deployPackToFirebase(packData: Pack) {
     await db.collection('packs').doc(packId).set({
       ...packData,
       downloadUrl: url,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: (admin.firestore.FieldValue as unknown as { serverTimestamp: () => unknown }).serverTimestamp(),
       isActive: true
     });
 
     return { success: true, url };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Deploy Error:", error);
-    return { success: false, error: error.message };
+    const message = error instanceof Error ? error.message : 'Unknown deployment error';
+    return { success: false, error: message };
   }
 }
