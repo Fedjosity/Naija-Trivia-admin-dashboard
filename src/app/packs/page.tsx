@@ -13,6 +13,8 @@ import {
   Grid,
   List,
 } from "lucide-react";
+import AiPackGeneratorModal from "@/components/AiPackGeneratorModal";
+import NewPackModal from "@/components/NewPackModal";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { db } from "@/lib/firebase-client";
@@ -34,6 +36,8 @@ export default function PacksPage() {
   const [packs, setPacks] = useState<PackRecord[]>([]);
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -81,11 +85,17 @@ export default function PacksPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 bg-white/5 text-white px-5 py-2.5 rounded-xl font-bold border border-white/10 hover:bg-white/10 transition-all">
+          <button 
+            onClick={() => setIsAiModalOpen(true)}
+            className="flex items-center gap-2 bg-white/5 text-white px-5 py-2.5 rounded-xl font-bold border border-white/10 hover:bg-white/10 transition-all active:scale-95"
+          >
             <Sparkles size={18} className="text-[#0fbd58]" />
             AI Pack Generator
           </button>
-          <button className="flex items-center gap-2 bg-[#0fbd58] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#0db052] transition-all shadow-lg shadow-[#0fbd58]/20">
+          <button 
+            onClick={() => setIsUploadModalOpen(true)}
+            className="flex items-center gap-2 bg-[#0fbd58] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#0db052] transition-all shadow-lg shadow-[#0fbd58]/20 active:scale-95"
+          >
             <Plus size={18} />
             New Pack
           </button>
@@ -123,6 +133,7 @@ export default function PacksPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {fetching ? (
           <div className="col-span-full py-20 flex flex-col items-center gap-4">
              <div className="w-10 h-10 border-2 border-[#0fbd58] border-t-transparent rounded-full animate-spin" />
@@ -142,7 +153,7 @@ export default function PacksPage() {
             className="p-6 rounded-3xl bg-[#141d1a] border border-white/5 hover:border-[#0fbd58]/30 transition-all group cursor-pointer relative overflow-hidden"
           >
             {/* Background Pattern */}
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
+            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 pointer-events-none">
               <Library size={120} />
             </div>
 
@@ -220,6 +231,16 @@ export default function PacksPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <AiPackGeneratorModal 
+        isOpen={isAiModalOpen} 
+        onClose={() => setIsAiModalOpen(false)} 
+      />
+      <NewPackModal 
+        isOpen={isUploadModalOpen} 
+        onClose={() => setIsUploadModalOpen(false)} 
+      />
     </main>
   );
 }
