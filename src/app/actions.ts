@@ -1,6 +1,7 @@
 'use server';
 
 import { Question } from '@antigravity/content-schema';
+import * as admin from 'firebase-admin';
 import fs from 'fs/promises';
 import path from 'path';
 import { format } from 'date-fns';
@@ -83,6 +84,44 @@ export async function generateQuestions(category: string, count: number = 5): Pr
   }
 }
 
+export async function generateFullPack(category: string, difficulty: string = 'beginner'): Promise<Pack | null> {
+    console.log(`Generating full pack for ${category} (${difficulty})...`);
+    
+    try {
+        const prompt = `Generate a complete trivia pack about ${category} in Nigeria at a ${difficulty} difficulty.
+        The response MUST be a single JSON object matching this structure:
+        {
+          "id": "string-slug",
+          "title": "Clean Title",
+          "version": "1.0",
+          "questions": [
+             {
+               "id": "q1",
+               "text": "The question...?",
+               "options": ["A", "B", "C", "D"],
+               "correctAnswerIndex": 0,
+               "explanation": "...",
+               "culturalContext": "...",
+               "category": "${category}",
+               "difficulty": "${difficulty}"
+             }
+          ],
+          "publishedAt": "${new Date().toISOString()}",
+          "checksum": "auto-filled"
+        }
+        Generate exactly 10 high-quality questions.`;
+        
+        const result = await model.generateContent([TRIVIA_SYSTEM_PROMPT, prompt]);
+        const response = await result.response;
+        const text = response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        return JSON.parse(text);
+    } catch (e) {
+        console.error("Pack Generation Failed:", e);
+        return null;
+    }
+}
+
 export async function saveDraft(question: Question) {
   console.log('Saving draft:', question.id);
   
@@ -100,4 +139,49 @@ export async function saveDraft(question: Question) {
   );
   
   return { success: true };
+}
+
+import { type Pack } from '@antigravity/content-schema';
+
+/**
+ * Deploys a pack object OR a daily pack to Firebase (Firestore & Storage)
+ */
+export async function deployPackToFirebase(packData: Pack) {
+  const { getFirebaseAdmin } = await import('@/lib/firebaseAdmin');
+  const { db, storage } = getFirebaseAdmin();
+  const bucket = storage.bucket();
+
+  try {
+    const packId = packData.id;
+    if (!packId) throw new Error("Missing ID in pack data");
+
+    console.log(`🚀 Deploying Pack: ${packId}`);
+
+    // 1. Upload to Storage
+    const storagePath = `packs/${packId}.json`;
+    const buffer = Buffer.from(JSON.stringify(packData), 'utf-8');
+    const file = bucket.file(storagePath);
+    
+    await file.save(buffer, {
+      contentType: 'application/json',
+    });
+
+    const [url] = await file.getSignedUrl({
+      action: 'read',
+      expires: '03-01-2500',
+    });
+
+    // 2. Register in Firestore
+    await db.collection('packs').doc(packId).set({
+      ...packData,
+      downloadUrl: url,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isActive: true
+    });
+
+    return { success: true, url };
+  } catch (error: any) {
+    console.error("Deploy Error:", error);
+    return { success: false, error: error.message };
+  }
 }
