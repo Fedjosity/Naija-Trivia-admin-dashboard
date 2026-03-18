@@ -10,34 +10,59 @@ import {
   Filter,
   ShieldCheck,
   ShieldAlert,
-  Wallet
+  Wallet,
+  Calendar,
+  Coins
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { db } from '@/lib/firebase-client';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
-interface MockUser {
+interface UserRecord {
   id: string;
   username: string;
   uid: string;
-  joined: string;
+  createdAt: { seconds: number; nanoseconds: number } | null;
   score: number;
-  coins: number;
+  walletBalance: number;
   status: 'Active' | 'Banned';
 }
-
-const MOCK_USERS: MockUser[] = [
-  { id: '1', username: 'Kuda_12', uid: 'user_882x', joined: '2024-03-10', score: 12500, coins: 450, status: 'Active' },
-  { id: '2', username: 'Bola_Star', uid: 'user_991z', joined: '2024-03-11', score: 8400, coins: 1200, status: 'Active' },
-  { id: '3', username: 'Chidi_G', uid: 'user_443w', joined: '2024-03-12', score: 21000, coins: 50, status: 'Active' },
-  { id: '4', username: 'Amina_X', uid: 'user_112v', joined: '2024-03-12', score: 500, coins: 200, status: 'Banned' },
-];
 
 export default function UsersPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [fetching, setFetching] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
+      return;
+    }
+
+    if (user) {
+      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const usersData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            username: data.displayName || data.username || 'Anonymous',
+            uid: data.uid || doc.id,
+            createdAt: data.createdAt,
+            score: data.stats?.totalScore || data.score || 0,
+            walletBalance: data.wallet?.naijaCoins || data.walletBalance || 0,
+            status: data.status || 'Active'
+          };
+        }) as UserRecord[];
+        setUsers(usersData);
+        setFetching(false);
+      }, (err) => {
+        console.error("Firestore error:", err);
+        setFetching(false);
+      });
+      return () => unsubscribe();
     }
   }, [user, loading, router]);
 
@@ -82,63 +107,96 @@ export default function UsersPage() {
 
       {/* Users Table */}
       <div className="bg-[#141d1a] border border-white/5 rounded-[2rem] overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-white/5">
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Player</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">UID</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Joined</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Score</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Status</th>
-              <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {MOCK_USERS.map((u) => (
-              <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
-                <td className="px-8 py-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-[#0fbd58]/10 flex items-center justify-center font-bold text-[#0fbd58] text-xs">
-                      {u.username[0]}
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-white leading-tight">{u.username}</p>
-                      <p className="text-[10px] text-zinc-500 font-medium">Player Level: Elite</p>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-8 py-4">
-                  <code className="text-[11px] text-zinc-500 bg-white/5 px-2 py-1 rounded-lg">{u.uid}</code>
-                </td>
-                <td className="px-8 py-4 text-xs text-zinc-400">{u.joined}</td>
-                <td className="px-8 py-4 text-xs font-bold text-white">{u.score.toLocaleString()}</td>
-                <td className="px-8 py-4">
-                  {u.status === 'Active' ? (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0fbd58]/10 text-[#0fbd58] text-[10px] font-bold uppercase tracking-wide">
-                      <ShieldCheck size={12} />
-                      Active
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wide">
-                      <ShieldAlert size={12} />
-                      Banned
-                    </div>
-                  )}
-                </td>
-                <td className="px-8 py-4">
-                  <div className="flex items-center gap-2">
-                    <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Edit Wallet">
-                      <Wallet size={16} />
-                    </button>
-                    <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="More Actions">
-                      <MoreVertical size={16} />
-                    </button>
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-white/5">
+                <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Player</th>
+                <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Metadata</th>
+                <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none">Economy</th>
+                <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none text-center">Status</th>
+                <th className="px-8 py-5 text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none text-right">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {fetching ? (
+                <tr>
+                   <td colSpan={5} className="px-8 py-20 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                         <div className="w-8 h-8 border-2 border-[#0fbd58] border-t-transparent rounded-full animate-spin" />
+                         <p className="text-zinc-500 text-sm font-medium">Synchronizing with Firebase...</p>
+                      </div>
+                   </td>
+                </tr>
+              ) : users.length === 0 ? (
+                <tr>
+                   <td colSpan={5} className="px-8 py-20 text-center">
+                      <p className="text-zinc-500 text-sm font-medium">No players found in the system.</p>
+                   </td>
+                </tr>
+              ) : users.filter(u => 
+                  u.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                  u.uid.toLowerCase().includes(searchTerm.toLowerCase())
+                ).map((u: UserRecord) => (
+                <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
+                  <td className="px-8 py-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-[#0fbd58]/10 flex items-center justify-center font-bold text-[#0fbd58] border border-[#0fbd58]/20 group-hover:scale-110 transition-transform">
+                        {u.username[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white leading-tight group-hover:text-[#0fbd58] transition-colors">{u.username}</p>
+                        <p className="text-[10px] text-zinc-500 font-mono tracking-tighter uppercase">{u.uid.slice(0, 12)}...</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-zinc-400">
+                        <Calendar size={12} />
+                        <span className="text-[11px] font-medium">Joined {u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-zinc-500">
+                        <ShieldCheck size={12} />
+                        <span className="text-[9px] font-bold uppercase tracking-widest italic">Standard Scholar</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-4">
+                    <div className="space-y-1 text-right md:text-left">
+                       <div className="flex items-center gap-1.5">
+                          <Coins size={12} className="text-orange-400" />
+                          <p className="text-white font-bold text-sm tracking-tight">₦{u.walletBalance.toLocaleString()}</p>
+                       </div>
+                       <p className="text-[#0fbd58] text-[9px] font-bold uppercase tracking-widest">{u.score.toLocaleString()} XP</p>
+                    </div>
+                  </td>
+                  <td className="px-8 py-4 text-center">
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all",
+                      u.status === 'Active' 
+                        ? "bg-[#0fbd58]/10 text-[#0fbd58] border-[#0fbd58]/20" 
+                        : "bg-red-500/10 text-red-500 border-red-500/20"
+                    )}>
+                      {u.status === 'Active' ? <ShieldCheck size={10} /> : <ShieldAlert size={10} />}
+                      {u.status}
+                    </span>
+                  </td>
+                  <td className="px-8 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button className="p-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all" title="Edit Wallet">
+                        <Wallet size={16} />
+                      </button>
+                      <button className="p-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all" title="Actions">
+                        <MoreVertical size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </main>
   );

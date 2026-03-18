@@ -11,6 +11,9 @@ import {
   TrendingUp,
   ArrowUpRight
 } from 'lucide-react';
+import { db } from '@/lib/firebase-client';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { useState } from 'react';
 
 // Static mock data to satisfy pure rendering rules and avoid Math.random lint issues
 const STABLE_CHART_DATA = [
@@ -31,10 +34,40 @@ const STABLE_CHART_DATA = [
 export default function Home() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const [statsData, setStatsData] = useState({
+    users: 0,
+    packs: 0,
+    skins: 0,
+    revenue: 0
+  });
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
+      return;
+    }
+
+    if (user) {
+      // Real-time Users count
+      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        setStatsData(prev => ({ ...prev, users: snap.size }));
+      });
+
+      // Real-time Packs count
+      const unsubPacks = onSnapshot(collection(db, 'packs'), (snap) => {
+        setStatsData(prev => ({ ...prev, packs: snap.size }));
+      });
+
+      // Real-time Skins count
+      const unsubSkins = onSnapshot(collection(db, 'skins'), (snap) => {
+        setStatsData(prev => ({ ...prev, skins: snap.size }));
+      });
+
+      return () => {
+        unsubUsers();
+        unsubPacks();
+        unsubSkins();
+      };
     }
   }, [user, loading, router]);
 
@@ -46,15 +79,15 @@ export default function Home() {
     );
   }
 
-  const stats = [
-    { name: 'Daily Active Users', value: '2.4k', trend: '+12%', icon: Users },
-    { name: 'Total Revenue', value: '$12.5k', trend: '+5%', icon: DollarSign },
-    { name: 'Packs Live', value: '18', trend: '0%', icon: Library },
-    { name: 'Avg. Session', value: '8m 24s', trend: '+2m', icon: Timer },
+  const statCards = [
+    { name: 'Daily Active Users', value: statsData.users.toLocaleString(), trend: '+12%', icon: Users },
+    { name: 'Total Revenue', value: `₦${statsData.revenue.toLocaleString()}`, trend: '+5%', icon: DollarSign },
+    { name: 'Packs Live', value: statsData.packs.toString(), trend: '+3', icon: Library },
+    { name: 'Boutique Items', value: statsData.skins.toString(), trend: 'New', icon: Timer },
   ];
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[#0b0e0c] p-8 space-y-8">
+    <main className="flex-1 overflow-y-auto bg-[#0b0e0c] p-8 space-y-8 text-white">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -71,7 +104,7 @@ export default function Home() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
+        {statCards.map((stat) => (
           <div key={stat.name} className="p-6 rounded-2xl bg-[#141d1a] border border-white/5 space-y-4 hover:border-[#0fbd58]/30 transition-all cursor-pointer group">
             <div className="flex items-center justify-between">
               <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-[#0fbd58]/10 transition-colors">
@@ -84,7 +117,7 @@ export default function Home() {
             </div>
             <div>
               <p className="text-zinc-500 text-xs font-medium uppercase tracking-wider">{stat.name}</p>
-              <h3 className="text-2xl font-bold text-white mt-1">{stat.value}</h3>
+              <h3 className="text-2xl font-bold text-white mt-1 tracking-tight">{stat.value}</h3>
             </div>
           </div>
         ))}
