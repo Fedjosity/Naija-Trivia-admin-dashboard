@@ -40,7 +40,7 @@ export function GeneratorForm() {
           // Let's rely on a window reload for this simple version or router refresh.
           window.location.reload(); 
 
-      } catch (e) {
+      } catch {
           setMessage('Error during generation.');
       }
   }

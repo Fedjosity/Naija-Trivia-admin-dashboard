@@ -15,7 +15,7 @@ export default function PublishPage() {
             
             <div className="bg-card border rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-4">Daily Pack</h2>
-                <p className="text-muted-foreground mb-6">Aggregate all currently APPROVED questions into today's pack.</p>
+                <p className="text-muted-foreground mb-6">Aggregate all currently APPROVED questions into today&apos;s pack.</p>
                 
                 <form action={handlePublish}>
                     <Button type="submit">Publish Pack Now</Button>

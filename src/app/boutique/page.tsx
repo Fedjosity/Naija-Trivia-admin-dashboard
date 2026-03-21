@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   ShoppingBag,
   Plus,
@@ -160,12 +161,14 @@ export default function BoutiquePage() {
             {/* Preview Area */}
             <div className="h-48 bg-black/40 flex items-center justify-center relative overflow-hidden group-hover:scale-105 transition-transform">
               {skin.preview ? (
-                <img 
+                <Image 
                   src={skin.preview.startsWith('http') ? skin.preview : `https://firebasestorage.googleapis.com/v0/b/naija-trivia.firebasestorage.app/o/${encodeURIComponent(skin.preview)}?alt=media`}
                   alt={skin.name}
-                  className="w-full h-full object-contain p-4 group-hover:scale-110 transition-transform duration-500"
+                  fill
+                  className="object-contain p-4 group-hover:scale-110 transition-transform duration-500"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'https://placehold.co/600x400/141d1a/0fbd58?text=Skin';
+                    const target = e.target as HTMLImageElement;
+                    target.src = 'https://placehold.co/600x400/141d1a/0fbd58?text=Skin';
                   }}
                 />
               ) : (

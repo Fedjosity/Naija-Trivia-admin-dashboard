@@ -45,8 +45,7 @@ export async function listGeminiModels(): Promise<GeminiModel[]> {
     }
 
     // Map and filter the models
-    return data.models.map((model: any) => ({
-      // Remove 'models/' prefix if present
+    return data.models.map((model: { name: string; supportedGenerationMethods: string[] }) => ({
       name: model.name.replace(/^models\//, ""),
       supportedGenerationMethods: model.supportedGenerationMethods || [],
     }));

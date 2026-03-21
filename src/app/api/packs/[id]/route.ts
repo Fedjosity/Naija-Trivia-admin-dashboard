@@ -21,7 +21,7 @@ export async function GET(
     const data = JSON.parse(fileContent);
 
     return NextResponse.json(data);
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch pack' }, { status: 500 });
   }
 }

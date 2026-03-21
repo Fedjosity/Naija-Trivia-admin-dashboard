@@ -11,7 +11,7 @@ async function getDrafts() {
   try {
     const files = await fs.readdir(draftsDir);
     return files.filter((f) => f.endsWith(".json"));
-  } catch (e) {
+  } catch {
     return [];
   }
 }

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Plus,
   Library,
@@ -13,8 +14,6 @@ import {
   Grid,
   List,
 } from "lucide-react";
-import AiPackGeneratorModal from "@/components/AiPackGeneratorModal";
-import NewPackModal from "@/components/NewPackModal";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { db } from "@/lib/firebase-client";
@@ -36,8 +35,8 @@ export default function PacksPage() {
   const [packs, setPacks] = useState<PackRecord[]>([]);
   const [fetching, setFetching] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  const CATEGORIES = ["All", "History", "Culture", "Geography", "Music", "Sports"];
 
   useEffect(() => {
     if (!loading && !user) {
@@ -58,43 +57,43 @@ export default function PacksPage() {
             status: data.status || "Published",
             version: data.version?.toString() || "1.0",
             coverImage: data.coverImage || data.thumbnail,
-          };
-        }) as PackRecord[];
+          } as PackRecord;
+        });
         setPacks(packsData);
         setFetching(false);
       }, (err) => {
         console.error("Firestore Packs Error:", err);
         setFetching(false);
       });
+
       return () => unsubscribe();
     }
   }, [user, loading, router]);
 
-  if (loading || !user) return null;
+  if (loading) return null;
 
   return (
     <main className="flex-1 overflow-y-auto bg-[#0b0e0c] p-8 space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">
-            Trivia Packs
+          <h2 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+            <Library className="text-zinc-500" />
+            Trivia Catalogue
           </h2>
-          <p className="text-zinc-500 text-sm">
-            Create, manage, and deploy trivia content
-          </p>
+          <p className="text-zinc-500 text-sm font-medium">Manage and synthesize your game content</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={() => setIsAiModalOpen(true)}
-            className="flex items-center gap-2 bg-white/5 text-white px-5 py-2.5 rounded-xl font-bold border border-white/10 hover:bg-white/10 transition-all active:scale-95"
+            onClick={() => router.push('/packs/new?ai=true')}
+            className="flex items-center gap-2 bg-white/5 text-white px-5 py-2.5 rounded-2xl font-bold hover:bg-white/10 transition-all border border-white/5"
           >
             <Sparkles size={18} className="text-[#0fbd58]" />
             AI Pack Generator
           </button>
           <button 
-            onClick={() => setIsUploadModalOpen(true)}
-            className="flex items-center gap-2 bg-[#0fbd58] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#0db052] transition-all shadow-lg shadow-[#0fbd58]/20 active:scale-95"
+            onClick={() => router.push('/packs/new')}
+            className="flex items-center gap-2 bg-[#0fbd58] text-white px-5 py-2.5 rounded-2xl font-bold hover:bg-[#0db052] transition-all shadow-lg shadow-[#0fbd58]/20"
           >
             <Plus size={18} />
             New Pack
@@ -102,34 +101,32 @@ export default function PacksPage() {
         </div>
       </div>
 
-      {/* Filters and View Toggle */}
-      <div className="flex items-center justify-between border-b border-white/5 pb-4">
-        <div className="flex items-center gap-6">
-          {["All", "History", "Culture", "Geography", "Music"].map((tab) => (
+      {/* Filters & Tabs */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
+          {CATEGORIES.map((cat) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
+              key={cat}
+              onClick={() => setActiveTab(cat)}
               className={cn(
-                "text-sm font-bold transition-all relative pb-4",
-                activeTab === tab
-                  ? "text-[#0fbd58]"
-                  : "text-zinc-500 hover:text-white",
+                "px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap border",
+                activeTab === cat
+                  ? "bg-[#0fbd58]/10 text-[#0fbd58] border-[#0fbd58]/20"
+                  : "text-zinc-500 hover:text-white border-transparent"
               )}
             >
-              {tab}
-              {activeTab === tab && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0fbd58] rounded-full" />
-              )}
+              {cat}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 bg-white/5 p-1 rounded-lg border border-white/10">
-          <button className="p-1.5 rounded-md bg-[#0fbd58]/20 text-[#0fbd58]">
-            <Grid size={16} />
-          </button>
-          <button className="p-1.5 rounded-md text-zinc-500 hover:text-white transition-all">
-            <List size={16} />
-          </button>
+        
+        <div className="flex items-center gap-2 bg-black/20 p-1 rounded-xl border border-white/5">
+           <button className="p-2 text-[#0fbd58] bg-white/5 rounded-lg border border-white/5">
+              <Grid size={16} />
+           </button>
+           <button className="p-2 text-zinc-600 hover:text-white transition-colors">
+              <List size={16} />
+           </button>
         </div>
       </div>
 
@@ -148,9 +145,10 @@ export default function PacksPage() {
              <button className="text-[#0fbd58] text-sm font-bold hover:underline">Download Sample Pack</button>
           </div>
         ) : packs.filter(p => activeTab === "All" || p.category === activeTab).map((pack: PackRecord) => (
-          <div
+          <Link
             key={pack.id}
-            className="p-6 rounded-3xl bg-[#141d1a] border border-white/5 hover:border-[#0fbd58]/30 transition-all group cursor-pointer relative overflow-hidden"
+            href={`/packs/${pack.id}`}
+            className="p-6 rounded-3xl bg-[#141d1a] border border-white/5 hover:border-[#0fbd58]/30 transition-all group cursor-pointer relative overflow-hidden block"
           >
             {/* Background Pattern */}
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 pointer-events-none">
@@ -229,18 +227,9 @@ export default function PacksPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
-
-      <AiPackGeneratorModal 
-        isOpen={isAiModalOpen} 
-        onClose={() => setIsAiModalOpen(false)} 
-      />
-      <NewPackModal 
-        isOpen={isUploadModalOpen} 
-        onClose={() => setIsUploadModalOpen(false)} 
-      />
     </main>
   );
 }

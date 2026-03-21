@@ -27,11 +27,11 @@ export default async function ReviewPage(props: {
   try {
     const data = await fs.readFile(filePath, "utf-8");
     draft = JSON.parse(data);
-  } catch (e) {
+  } catch {
     notFound();
   }
 
-  async function approveAction(formData: FormData) {
+  async function approveAction() {
     "use server";
     // Move to approved folder
     const approvedDir = path.resolve(process.cwd(), "../../content/approved");
@@ -57,7 +57,7 @@ export default async function ReviewPage(props: {
     const currentPath = path.join(currentDraftDir, `${id}.json`);
     try {
       await fs.unlink(currentPath);
-    } catch (e) {}
+    } catch {}
     redirect("/drafts");
   }
 

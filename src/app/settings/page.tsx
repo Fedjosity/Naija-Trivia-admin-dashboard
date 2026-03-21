@@ -72,10 +72,11 @@ export default function SettingsPage() {
 
       setStatus('success');
       setMessage('Database initialized! You are now a verified admin with sample content.');
-    } catch (err: any) {
-      console.error(err);
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error(error);
       setStatus('error');
-      setMessage(`Seeding failed: ${err.message}`);
+      setMessage(`Seeding failed: ${error.message}`);
     } finally {
       setSeeding(false);
     }

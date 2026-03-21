@@ -28,7 +28,7 @@ export async function GET() {
     }
 
     return NextResponse.json({ packs });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch packs' }, { status: 500 });
   }
 }
