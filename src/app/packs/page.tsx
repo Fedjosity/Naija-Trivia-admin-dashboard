@@ -33,6 +33,7 @@ interface PackRecord {
   category: string;
   questionCount: number;
   status: "Published" | "Draft" | "AI Generating";
+  rarity: "Standard" | "Exclusive";
   version: string;
   coverImage?: string;
 }
@@ -72,10 +73,11 @@ export default function PacksPage() {
               id: doc.id,
               title: data.title || "Untitled Pack",
               category: data.category || "General",
-              questionCount: data.questionCount || data.questions?.length || 0,
-              status: data.status || "Published",
-              version: data.version?.toString() || "1.0",
-              coverImage: data.coverImage || data.thumbnail,
+              questionCount: data.questions?.length || 0,
+              status: data.status || "Draft",
+              rarity: data.rarity || "Standard",
+              version: data.version || "1.0",
+              coverImage: data.coverImage,
             } as PackRecord;
           });
           setPacks(packsData);
@@ -150,6 +152,21 @@ export default function PacksPage() {
           Draft
         </span>
       </div>
+    );
+  };
+
+  const rarityBadge = (rarity: PackRecord["rarity"]) => {
+    if (rarity === "Exclusive") {
+      return (
+        <span className="px-2 py-0.5 rounded-md bg-amber-400/10 text-amber-400 text-[9px] font-black uppercase tracking-wider border border-amber-400/20">
+          Pro
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded-md bg-white/5 text-zinc-500 text-[9px] font-bold uppercase tracking-wider">
+        Free
+      </span>
     );
   };
 
@@ -310,6 +327,7 @@ export default function PacksPage() {
                       {pack.questionCount} Questions
                     </p>
                   </div>
+                  {rarityBadge(pack.rarity)}
                 </div>
 
                 <div className="pt-4 mt-auto flex items-center justify-between border-t border-white/5">
@@ -389,7 +407,10 @@ export default function PacksPage() {
               </span>
 
               {/* Status */}
-              {statusBadge(pack.status)}
+              <div className="flex items-center gap-3">
+                {rarityBadge(pack.rarity)}
+                {statusBadge(pack.status)}
+              </div>
 
               {/* Version */}
               <span className="text-xs font-bold text-zinc-500">

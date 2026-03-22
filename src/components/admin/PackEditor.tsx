@@ -33,6 +33,7 @@ interface PackData {
   title: string;
   category: string;
   difficulty: 'Beginner' | 'Intermediate' | 'Legendary';
+  rarity: 'Standard' | 'Exclusive';
   coverImage: string;
   version: string;
   status: 'Published' | 'Draft';
@@ -61,6 +62,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
     title: '',
     category: 'History',
     difficulty: 'Intermediate',
+    rarity: 'Standard',
     coverImage: '',
     version: '1.0',
     status: 'Draft',
@@ -81,6 +83,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
             title: data.title || '',
             category: data.category || 'History',
             difficulty: data.difficulty || 'Intermediate',
+            rarity: data.rarity || 'Standard',
             coverImage: data.coverImage || '',
             version: data.version?.toString() || '1.0',
             status: data.status || 'Draft',
@@ -367,26 +370,49 @@ export default function PackEditor({ packId }: PackEditorProps) {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Category</label>
-                    <select 
-                      value={formData.category}
-                      onChange={(e) => setFormData(p => ({ ...p, category: e.target.value }))}
-                      className="w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all appearance-none cursor-pointer font-semibold"
-                    >
-                      {['History', 'Culture', 'Geography', 'Music', 'Sports'].map(c => <option key={c}>{c}</option>)}
-                    </select>
+                    <div className="relative">
+                      <select 
+                        value={formData.category}
+                        onChange={(e) => setFormData(p => ({ ...p, category: e.target.value }))}
+                        className="w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all appearance-none cursor-pointer font-semibold"
+                      >
+                        {['History', 'Culture', 'Geography', 'Music', 'Sports'].map(c => <option key={c}>{c}</option>)}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" size={16} />
+                    </div>
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Difficulty</label>
-                    <select 
-                      value={formData.difficulty}
-                      onChange={(e) => setFormData(p => ({ ...p, difficulty: e.target.value as PackData['difficulty'] }))}
-                      className="w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all appearance-none cursor-pointer font-semibold"
-                    >
-                      {['Beginner', 'Intermediate', 'Legendary'].map(d => <option key={d}>{d}</option>)}
-                    </select>
+                    <div className="relative">
+                      <select 
+                        value={formData.difficulty}
+                        onChange={(e) => setFormData(p => ({ ...p, difficulty: e.target.value as PackData['difficulty'] }))}
+                        className="w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all appearance-none cursor-pointer font-semibold"
+                      >
+                        {['Beginner', 'Intermediate', 'Legendary'].map(d => <option key={d}>{d}</option>)}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" size={16} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Rarity</label>
+                    <div className="relative">
+                      <select 
+                        value={formData.rarity}
+                        onChange={(e) => setFormData(p => ({ ...p, rarity: e.target.value as PackData['rarity'] }))}
+                        className={cn(
+                          "w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 focus:outline-none transition-all appearance-none cursor-pointer font-semibold",
+                          formData.rarity === 'Exclusive' ? "text-amber-400 border-amber-400/20" : "text-white"
+                        )}
+                      >
+                        <option value="Standard">Standard (Free)</option>
+                        <option value="Exclusive">Exclusive (Pro)</option>
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 pointer-events-none" size={16} />
+                    </div>
                   </div>
                 </div>
 
