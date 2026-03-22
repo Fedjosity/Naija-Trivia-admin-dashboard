@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Save, 
   Plus, 
@@ -12,18 +12,22 @@ import {
   CheckCircle2, 
   X,
   Image as ImageIcon,
-  List
+  List,
+  Upload
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { db } from '@/lib/firebase-client';
+import { db, storage } from '@/lib/firebase-client';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useRouter } from 'next/navigation';
+import { generateQuestions } from '@/app/actions';
+import Image from 'next/image';
 
 interface Question {
   text: string;
   options: string[];
   correctOptionIndex: number;
-  hint?: string;
+  hint: string;
 }
 
 interface PackData {
@@ -48,6 +52,11 @@ export default function PackEditor({ packId }: PackEditorProps) {
   const [generating, setGenerating] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   
+  // Image upload state
+  const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState<PackData>({
     title: '',
     category: 'History',
@@ -75,8 +84,20 @@ export default function PackEditor({ packId }: PackEditorProps) {
             coverImage: data.coverImage || '',
             version: data.version?.toString() || '1.0',
             status: data.status || 'Draft',
-            questions: data.questions || []
+            questions: (data.questions || []).map((q: Partial<Question>) => ({
+              text: q.text || '',
+              options: q.options || ['', '', '', ''],
+              correctOptionIndex: q.correctOptionIndex ?? 0,
+              hint: q.hint || '',
+            }))
           });
+          // Set preview for existing cover image
+          if (data.coverImage) {
+            const url = data.coverImage.startsWith('http')
+              ? data.coverImage
+              : `https://firebasestorage.googleapis.com/v0/b/naija-trivia.firebasestorage.app/o/${encodeURIComponent(data.coverImage)}?alt=media`;
+            setCoverImagePreview(url);
+          }
         }
       } catch (err) {
         console.error('Error fetching pack:', err);
@@ -89,6 +110,18 @@ export default function PackEditor({ packId }: PackEditorProps) {
       fetchPack();
     }
   }, [packId]);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCoverImageFile(file);
+    // Revoke old preview URL to avoid memory leaks
+    if (coverImagePreview && coverImagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(coverImagePreview);
+    }
+    setCoverImagePreview(URL.createObjectURL(file));
+  };
 
   const addQuestion = () => {
     setFormData(prev => ({
@@ -106,6 +139,13 @@ export default function PackEditor({ packId }: PackEditorProps) {
       ...prev,
       questions: prev.questions.filter((_, i) => i !== index)
     }));
+    // Adjust expanded question index
+    setExpandedQuestion(prev => {
+      if (prev === null) return null;
+      if (prev === index) return null;
+      if (prev > index) return prev - 1;
+      return prev;
+    });
   };
 
   const handleQuestionChange = (index: number, field: keyof Question, value: string | number) => {
@@ -116,7 +156,10 @@ export default function PackEditor({ packId }: PackEditorProps) {
 
   const handleOptionChange = (qIndex: number, oIndex: number, value: string) => {
     const newQuestions = [...formData.questions];
-    newQuestions[qIndex].options[oIndex] = value;
+    newQuestions[qIndex] = {
+      ...newQuestions[qIndex],
+      options: newQuestions[qIndex].options.map((opt, i) => i === oIndex ? value : opt)
+    };
     setFormData(prev => ({ ...prev, questions: newQuestions }));
   };
 
@@ -124,8 +167,20 @@ export default function PackEditor({ packId }: PackEditorProps) {
     if (!formData.title) return alert('Title is required');
     setSaving(true);
     try {
+      let coverImageUrl = formData.coverImage;
+
+      // Upload cover image if a new file was selected
+      if (coverImageFile) {
+        const docId = packId || doc(collection(db, 'packs')).id;
+        const ext = coverImageFile.name.split('.').pop() || 'png';
+        const storageRef = ref(storage, `packs/covers/${docId}.${ext}`);
+        await uploadBytes(storageRef, coverImageFile);
+        coverImageUrl = await getDownloadURL(storageRef);
+      }
+
       const payload = {
         ...formData,
+        coverImage: coverImageUrl,
         questionCount: formData.questions.length,
         updatedAt: serverTimestamp()
       };
@@ -149,31 +204,29 @@ export default function PackEditor({ packId }: PackEditorProps) {
     if (!aiPrompt) return;
     setGenerating(true);
     try {
-      // Simulation of AI generation flow
-      // In reality, this would call a Cloud Function
-      await new Promise(r => setTimeout(r, 3000));
+      const generated = await generateQuestions(formData.category, 5);
       
-      const generatedQuestions: Question[] = [
-        { 
-          text: `Who was the first president of Nigeria in the context of ${aiPrompt}?`, 
-          options: ['Nnamdi Azikiwe', 'Obafemi Awolowo', 'Ahmadu Bello', 'Tafawa Balewa'],
-          correctOptionIndex: 0,
-          hint: 'He is also known as Zik.'
-        },
-        {
-          text: `In what year did Nigeria gain its independence?`,
-          options: ['1960', '1963', '1957', '1970'],
-          correctOptionIndex: 0
-        }
-      ];
+      if (!generated || generated.length === 0) {
+        alert('AI returned no questions. Please try a different prompt or check your API key.');
+        return;
+      }
+
+      // Map the server action's Question schema to our PackEditor schema
+      const mappedQuestions: Question[] = generated.map((q) => ({
+        text: q.text || '',
+        options: q.options || ['', '', '', ''],
+        correctOptionIndex: (q as unknown as Record<string, number>).correctAnswerIndex ?? (q as unknown as Record<string, number>).correctOptionIndex ?? 0,
+        hint: (q as unknown as Record<string, string>).culturalContext || (q as unknown as Record<string, string>).explanation || '',
+      }));
 
       setFormData(prev => ({
         ...prev,
-        questions: [...prev.questions, ...generatedQuestions]
+        questions: [...prev.questions, ...mappedQuestions]
       }));
       setAiPrompt('');
     } catch (err) {
       console.error('AI Generation failed:', err);
+      alert('AI generation failed. Please ensure your GOOGLE_API_KEY is set in .env.local');
     } finally {
       setGenerating(false);
     }
@@ -286,15 +339,69 @@ export default function PackEditor({ packId }: PackEditorProps) {
                   </div>
                 </div>
 
+                {/* Cover Image Upload */}
                 <div>
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Cover Image Path / URL</label>
-                  <input 
-                    type="text"
-                    value={formData.coverImage}
-                    onChange={(e) => setFormData(p => ({ ...p, coverImage: e.target.value }))}
-                    className="w-full bg-black/30 border border-white/10 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all font-semibold"
-                    placeholder="packs/category/image.png or https://..."
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Cover Image</label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
                   />
+                  
+                  {coverImagePreview ? (
+                    <div className="relative group/img">
+                      <div className="w-full h-48 rounded-2xl overflow-hidden border border-white/10 bg-black/30 relative">
+                        <Image
+                          src={coverImagePreview}
+                          alt="Cover preview"
+                          fill
+                          className="object-cover"
+                          unoptimized={coverImagePreview.startsWith('blob:')}
+                        />
+                      </div>
+                      <div className="absolute inset-0 bg-black/60 rounded-2xl opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-4 py-2 bg-white/10 text-white rounded-xl text-xs font-bold hover:bg-white/20 transition-all border border-white/10"
+                        >
+                          Change Image
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCoverImageFile(null);
+                            if (coverImagePreview.startsWith('blob:')) URL.revokeObjectURL(coverImagePreview);
+                            setCoverImagePreview('');
+                            setFormData(p => ({ ...p, coverImage: '' }));
+                          }}
+                          className="px-4 py-2 bg-red-500/20 text-red-400 rounded-xl text-xs font-bold hover:bg-red-500/30 transition-all border border-red-500/20"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full h-48 rounded-2xl border-2 border-dashed border-white/10 bg-black/20 hover:border-[#0fbd58]/30 hover:bg-[#0fbd58]/5 transition-all flex flex-col items-center justify-center gap-3 group/upload cursor-pointer"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-zinc-600 group-hover/upload:text-[#0fbd58] transition-colors">
+                        <Upload size={24} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-bold text-zinc-500 group-hover/upload:text-white transition-colors">
+                          Click to upload cover image
+                        </p>
+                        <p className="text-[10px] font-medium text-zinc-700 mt-1">
+                          PNG, JPG, WEBP up to 5MB
+                        </p>
+                      </div>
+                    </button>
+                  )}
                 </div>
               </div>
             </section>
@@ -387,7 +494,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
                           <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest block mb-2 px-1">Hint (Optional)</label>
                           <input 
                             type="text"
-                            value={q.hint}
+                            value={q.hint || ''}
                             onChange={(e) => handleQuestionChange(qIndex, 'hint', e.target.value)}
                             className="w-full bg-black/30 border border-white/5 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-[#0fbd58]/50 transition-all font-medium text-sm"
                             placeholder="Helpful nudge for the player..."
@@ -424,13 +531,13 @@ export default function PackEditor({ packId }: PackEditorProps) {
                   <h3 className="text-xl font-bold text-white tracking-tight">AI Lab</h3>
                 </div>
                 <p className="text-zinc-400 text-xs font-medium leading-relaxed mb-6">
-                  Synthesize new questions using our GPT-4 pipeline. They will be added to your current list for review.
+                  Synthesize new questions using Gemini AI. They will be added to your current list for review.
                 </p>
 
                 <textarea 
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Ask AI to generate 5 more questions about the Biafra war..."
+                  placeholder={`Describe the topic for ${formData.category} questions...`}
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-zinc-700 focus:outline-none focus:border-[#0fbd58]/50 transition-all font-medium min-h-[120px] mb-4"
                 />
 
@@ -440,7 +547,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
                   className="w-full py-4 bg-[#0fbd58] text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-[#0db052] transition-all shadow-lg shadow-[#0fbd58]/30 disabled:opacity-50 active:scale-95"
                 >
                   {generating ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
-                  {generating ? 'Processing...' : 'Synthesize Questions'}
+                  {generating ? 'Generating with Gemini...' : 'Synthesize Questions'}
                 </button>
               </div>
             </div>
