@@ -50,18 +50,47 @@ export async function publishDailyPack() {
   return { success: true, id: pack.id };
 }
 
-export async function generateQuestions(category: string, count: number = 5): Promise<Question[]> {
-  console.log(`Generating ${count} questions for ${category}...`);
+export async function generateQuestions(
+  category: string, 
+  count: number = 5,
+  difficulty: string = 'Intermediate',
+  title: string = ''
+): Promise<Question[]> {
+  console.log(`Generating ${count} questions for ${category} (${difficulty})...`);
   
   try {
-    const prompt = `Generate ${count} diverse and interesting trivia questions about ${category} in Nigeria.`;
+    const prompt = `
+      Generate exactly ${count} concise and straight-to-the-point trivia questions about Nigeria.
+      
+      CONTEXT:
+      - Pack Title: "${title}"
+      - Category: "${category}"
+      - Difficulty: "${difficulty}"
+      
+      RULES FOR DIFFICULTY & HINTS:
+      - Beginner: EVERY question MUST include a helpful "hint" (keep it simple).
+      - Intermediate: Provide a "hint" for approximately 50% of the questions (the tougher ones).
+      - Legendary: Do NOT provide any "hint" (leave as empty string).
+      
+      GENERAL RULES:
+      - Questions and options must be SHORT and DIRECT.
+      - Return a JSON array of objects with these fields:
+        {
+          "text": "string",
+          "options": ["string", "string", "string", "string"],
+          "correctAnswerIndex": number (0-3),
+          "explanation": "string",
+          "hint": "string (follow difficulty rules)",
+          "culturalContext": "string"
+        }
+    `;
     
     // Call Gemini
     const result = await model.generateContent([TRIVIA_SYSTEM_PROMPT, prompt]);
     const response = await result.response;
     const text = response.text();
     
-    console.log("AI Response:", text); // Debugging
+    console.log("AI Response:", text);
 
     // Clean up potential markdown code blocks if the prompt instruction fails
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -69,11 +98,16 @@ export async function generateQuestions(category: string, count: number = 5): Pr
     const questionsRaw = JSON.parse(cleanText);
 
     // Map to ensure IDs and types are correct
-    const questions: Question[] = (questionsRaw as Question[]).map((q) => ({
-        ...q,
-        id: crypto.randomUUID(),
-        category: category as Question['category'],
-    }));
+    const questions: Question[] = (questionsRaw as unknown[]).map((rawQ) => {
+        const q = rawQ as Record<string, unknown>;
+        return {
+            ...q as unknown as Question,
+            id: crypto.randomUUID(),
+            category: category as Question['category'],
+            difficulty: difficulty as Question['difficulty'],
+            hint: String(q.hint || q.culturalContext || q.explanation || '')
+        };
+    });
 
     return questions;
 

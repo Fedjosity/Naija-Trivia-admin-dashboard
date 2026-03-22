@@ -51,6 +51,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [aiQuestionCount, setAiQuestionCount] = useState(5);
   
   // Image upload state
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
@@ -204,7 +205,12 @@ export default function PackEditor({ packId }: PackEditorProps) {
     if (!aiPrompt) return;
     setGenerating(true);
     try {
-      const generated = await generateQuestions(formData.category, 5);
+      const generated = await generateQuestions(
+        formData.category, 
+        aiQuestionCount, 
+        formData.difficulty, 
+        formData.title
+      );
       
       if (!generated || generated.length === 0) {
         alert('AI returned no questions. Please try a different prompt or check your API key.');
@@ -212,12 +218,15 @@ export default function PackEditor({ packId }: PackEditorProps) {
       }
 
       // Map the server action's Question schema to our PackEditor schema
-      const mappedQuestions: Question[] = generated.map((q) => ({
-        text: q.text || '',
-        options: q.options || ['', '', '', ''],
-        correctOptionIndex: (q as unknown as Record<string, number>).correctAnswerIndex ?? (q as unknown as Record<string, number>).correctOptionIndex ?? 0,
-        hint: (q as unknown as Record<string, string>).culturalContext || (q as unknown as Record<string, string>).explanation || '',
-      }));
+      const mappedQuestions: Question[] = generated.map((q) => {
+        const raw = q as unknown as Record<string, unknown>;
+        return {
+          text: q.text || '',
+          options: q.options || ['', '', '', ''],
+          correctOptionIndex: Number(raw.correctAnswerIndex ?? raw.correctOptionIndex ?? 0),
+          hint: String(raw.hint || raw.culturalContext || raw.explanation || ''),
+        };
+      });
 
       setFormData(prev => ({
         ...prev,
@@ -540,6 +549,26 @@ export default function PackEditor({ packId }: PackEditorProps) {
                   placeholder={`Describe the topic for ${formData.category} questions...`}
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-zinc-700 focus:outline-none focus:border-[#0fbd58]/50 transition-all font-medium min-h-[120px] mb-4"
                 />
+
+                <div className="flex items-center justify-between mb-6 px-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Question Count</label>
+                    <p className="text-[10px] text-zinc-600 font-medium">How many to synthesize?</p>
+                  </div>
+                  <div className="relative">
+                    <input 
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={aiQuestionCount}
+                      onChange={(e) => setAiQuestionCount(Math.min(20, Math.max(1, Number(e.target.value))))}
+                      className="w-20 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white text-center focus:outline-none focus:border-[#0fbd58]/50 transition-all font-bold appearance-none"
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-600">
+                      <ChevronDown size={14} />
+                    </div>
+                  </div>
+                </div>
 
                 <button 
                   onClick={handleAiGenerate}
