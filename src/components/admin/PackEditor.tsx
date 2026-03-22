@@ -240,7 +240,8 @@ export default function PackEditor({ packId }: PackEditorProps) {
       setAiPrompt('');
     } catch (err) {
       console.error('AI Generation failed:', err);
-      alert('AI generation failed. Please ensure your GOOGLE_API_KEY is set in .env.local');
+      const message = (err as Error)?.message || 'AI generation failed. Please ensure your GOOGLE_API_KEY is set in .env.local';
+      alert(message);
     } finally {
       setGenerating(false);
     }
