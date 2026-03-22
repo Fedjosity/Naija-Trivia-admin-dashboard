@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase-client';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import { generateQuestions, uploadPackImage } from '@/app/actions';
+import { generateQuestions } from '@/app/actions';
 import Image from 'next/image';
 
 interface Question {
@@ -93,7 +93,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
           });
           // Set preview for existing cover image
           if (data.coverImage) {
-            const url = data.coverImage.startsWith('http')
+            const url = (data.coverImage.startsWith('http') || data.coverImage.startsWith('data:'))
               ? data.coverImage
               : `https://firebasestorage.googleapis.com/v0/b/naija-trivia.firebasestorage.app/o/${encodeURIComponent(data.coverImage)}?alt=media`;
             setCoverImagePreview(url);
@@ -163,22 +163,59 @@ export default function PackEditor({ packId }: PackEditorProps) {
     setFormData(prev => ({ ...prev, questions: newQuestions }));
   };
 
+  const compressImage = (file: File, maxWidth = 1000, quality = 0.8): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = document.createElement('img');
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Compression failed'));
+          }, 'image/jpeg', quality);
+        };
+        img.onerror = () => reject(new Error('Image load failed'));
+      };
+      reader.onerror = () => reject(new Error('File read failed'));
+    });
+  };
+
   const handleSave = async () => {
     if (!formData.title) return alert('Title is required');
     setSaving(true);
     try {
       let coverImageUrl = formData.coverImage;
 
-      // Upload cover image to Storage via Server Action (bypasses CORS)
+      // Convert to Base64 and save directly in Firestore (robust for local dev)
       if (coverImageFile) {
-        const uploadFormData = new FormData();
-        uploadFormData.append('image', coverImageFile);
-        const uploadResult = await uploadPackImage(uploadFormData);
-        if (uploadResult.success && uploadResult.url) {
-          coverImageUrl = uploadResult.url;
-        } else {
-          throw new Error("Image upload failed. Please try again.");
-        }
+        setSaving(true);
+        console.log(`Original size: ${(coverImageFile.size / 1024 / 1024).toFixed(2)}MB`);
+        const compressedBlob = await compressImage(coverImageFile);
+        console.log(`Compressed size: ${(compressedBlob.size / 1024 / 1024).toFixed(2)}MB`);
+        
+        // Convert Blob to Base64 String
+        const base64ImageUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(compressedBlob);
+        });
+        
+        coverImageUrl = base64ImageUrl;
       }
 
       const payload = {
@@ -207,21 +244,17 @@ export default function PackEditor({ packId }: PackEditorProps) {
     if (!aiPrompt) return;
     setGenerating(true);
     try {
-      const { suggestedTitle, questions } = await generateQuestions(
+      // Pass the prompt as the 'topic' and use the main form's difficulty
+      const questions = await generateQuestions(
         formData.category, 
         aiQuestionCount, 
         formData.difficulty, 
-        formData.title
+        aiPrompt
       );
       
       if (!questions || questions.length === 0) {
         alert('AI returned no questions. Please try a different prompt or check your API key.');
         return;
-      }
-
-      // Automatically fill the title if it's currently empty
-      if (!formData.title && suggestedTitle) {
-        setFormData(prev => ({ ...prev, title: suggestedTitle }));
       }
 
       // Map the server action's Question schema to our PackEditor schema
@@ -237,6 +270,7 @@ export default function PackEditor({ packId }: PackEditorProps) {
 
       setFormData(prev => ({
         ...prev,
+        title: aiPrompt, // Strictly move the AI Prompt text to the Pack Title
         questions: [...prev.questions, ...mappedQuestions]
       }));
       setAiPrompt('');

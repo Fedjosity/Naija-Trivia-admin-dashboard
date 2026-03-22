@@ -5,9 +5,12 @@ import * as admin from 'firebase-admin';
  */
 export function getFirebaseAdmin() {
   if (!admin.apps.length) {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+      : null;
+
     admin.initializeApp({
-      // We assume GOOGLE_APPLICATION_CREDENTIALS covers this,
-      // or we can fallback to projectID if using ADC.
+      credential: serviceAccount ? admin.credential.cert(serviceAccount) : undefined,
       projectId: 'naija-trivia',
       storageBucket: 'naija-trivia.firebasestorage.app'
     });

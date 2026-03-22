@@ -269,7 +269,7 @@ export default function PacksPage() {
                     {pack.coverImage ? (
                       <Image
                         src={
-                          pack.coverImage.startsWith("http")
+                          (pack.coverImage.startsWith("http") || pack.coverImage.startsWith("data:"))
                             ? pack.coverImage
                             : `https://firebasestorage.googleapis.com/v0/b/naija-trivia.firebasestorage.app/o/${encodeURIComponent(pack.coverImage)}?alt=media`
                         }
@@ -355,7 +355,7 @@ export default function PacksPage() {
                   {pack.coverImage ? (
                     <Image
                       src={
-                        pack.coverImage.startsWith("http")
+                        (pack.coverImage.startsWith("http") || pack.coverImage.startsWith("data:"))
                           ? pack.coverImage
                           : `https://firebasestorage.googleapis.com/v0/b/naija-trivia.firebasestorage.app/o/${encodeURIComponent(pack.coverImage)}?alt=media`
                       }

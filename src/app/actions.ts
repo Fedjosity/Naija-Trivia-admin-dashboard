@@ -1,6 +1,6 @@
 'use server';
 
-import { Question } from '@antigravity/content-schema';
+import { Question, type Pack } from '@antigravity/content-schema';
 import * as admin from 'firebase-admin';
 import fs from 'fs/promises';
 import path from 'path';
@@ -24,7 +24,7 @@ export async function publishDailyPack() {
   
   if (jsonFiles.length === 0) return { success: false, message: "No questions to publish" };
 
-    const questions: Question[] = [];
+  const questions: Question[] = [];
   for (const file of jsonFiles) {
       const data = await fs.readFile(path.join(approvedDir, file), 'utf-8');
       questions.push(JSON.parse(data));
@@ -41,72 +41,68 @@ export async function publishDailyPack() {
       checksum: 'simulated-checksum' // In prod use crypto hash
   };
 
-  // Save Pack
-  await fs.writeFile(
-      path.join(publishedDir, `${pack.id}.json`),
-      JSON.stringify(pack, null, 2)
-  );
-  
-  return { success: true, id: pack.id };
-}
-
-export interface AiGenerationResult {
-  suggestedTitle: string;
-  questions: Question[];
+  try {
+    // Save Pack
+    await fs.writeFile(
+        path.join(publishedDir, `${pack.id}.json`),
+        JSON.stringify(pack, null, 2)
+    );
+    
+    return { success: true, id: pack.id };
+  } catch (error) {
+    console.error("Publish Failed:", error);
+    return { success: false, message: "Failed to write pack file" };
+  }
 }
 
 export async function generateQuestions(
   category: string, 
   count: number = 5,
   difficulty: string = 'Intermediate',
-  title: string = ''
-): Promise<AiGenerationResult> {
-  console.log(`Generating ${count} questions for ${category} (${difficulty})...`);
+  topic: string = ''
+): Promise<Question[]> {
+  console.log(`Generating ${count} questions for ${category} about topic: ${topic} (${difficulty})...`);
   
   try {
     const prompt = `
-      You are generating trivia questions for a pack about Nigeria.
+      You are a strict trivia expert. Generate EXACTLY ${count} questions about Nigeria.
+      
+      CRITICAL REQUIREMENT (100% STRICT):
+      The questions MUST be strictly about the following topic: "${topic}".
+      If the topic is highly specific, do not deviate. Every question, option, and explanation must relate directly to this topic.
       
       CONTEXT:
-      - Requested Title: "${title}"
       - Category: "${category}"
       - Difficulty: "${difficulty}"
       
       RESPONSE STRUCTURE:
-      Return a JSON object with this EXACT structure:
-      {
-        "suggestedTitle": "string (a punchy, short title if the requested title is empty)",
-        "questions": [
-          {
-            "text": "string",
-            "options": ["string", "string", "string", "string"],
-            "correctAnswerIndex": number (0-3),
-            "explanation": "string",
-            "hint": "string",
-            "culturalContext": "string"
-          }
-        ]
-      }
+      Return a JSON array of objects with this EXACT structure:
+      [
+        {
+          "text": "string",
+          "options": ["string", "string", "string", "string"],
+          "correctAnswerIndex": number (0-3),
+          "explanation": "string",
+          "hint": "string",
+          "culturalContext": "string"
+        }
+      ]
 
       RULES FOR QUESTIONS:
-      1. Generate EXACTLY ${count} questions.
-      2. Concise and straight-to-the-point questions and answers.
-      3. For 'Beginner' difficulty: EVERY question MUST include a helpful "hint".
-      4. For 'Intermediate' difficulty: Provide a "hint" for ~50% of questions.
-      5. For 'Legendary' difficulty: Do NOT provide any "hint" (empty string).
+      1. Concise and straight-to-the-point questions and answers.
+      2. For 'Beginner' difficulty: EVERY question MUST include a helpful "hint".
+      3. For 'Intermediate' difficulty: Provide a "hint" for ~50% of questions.
+      4. For 'Legendary' difficulty: Do NOT provide any "hint" (empty string).
     `;
     
-    // Call Gemini
     const result = await model.generateContent([TRIVIA_SYSTEM_PROMPT, prompt]);
     const response = await result.response;
     const text = response.text();
     
-    console.log("AI Response:", text);
-
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const data = JSON.parse(cleanText);
+    const questionsRaw = JSON.parse(cleanText);
 
-    const questions: Question[] = (data.questions as unknown[]).map((rawQ) => {
+    return (questionsRaw as unknown[]).map((rawQ) => {
         const q = rawQ as Record<string, unknown>;
         return {
             ...q as unknown as Question,
@@ -117,14 +113,9 @@ export async function generateQuestions(
         };
     });
 
-    return {
-      suggestedTitle: data.suggestedTitle || title || `${category} Challenge`,
-      questions
-    };
-
   } catch (error) {
     console.error("AI Generation Failed:", error);
-    return { suggestedTitle: title, questions: [] };
+    return [];
   }
 }
 
@@ -167,17 +158,10 @@ export async function generateFullPack(category: string, difficulty: string = 'b
 }
 
 export async function saveDraft(question: Question) {
-  console.log('Saving draft:', question.id);
-  
-  // Note: We need to resolve the path relative to the monorepo root
   const draftsDir = path.resolve(process.cwd(), '../../content/drafts');
-  
-  // Ensure dir exists
   try {
       await fs.mkdir(draftsDir, { recursive: true });
-  } catch {
-      // Ignore if exists
-  }
+  } catch {}
 
   await fs.writeFile(
     path.join(draftsDir, `${question.id}.json`), 
@@ -187,11 +171,6 @@ export async function saveDraft(question: Question) {
   return { success: true };
 }
 
-import { type Pack } from '@antigravity/content-schema';
-
-/**
- * Deploys a pack object OR a daily pack to Firebase (Firestore & Storage)
- */
 export async function deployPackToFirebase(packData: Pack) {
   const { getFirebaseAdmin } = await import('@/lib/firebaseAdmin');
   const { db, storage } = getFirebaseAdmin();
@@ -201,34 +180,28 @@ export async function deployPackToFirebase(packData: Pack) {
     const packId = packData.id;
     if (!packId) throw new Error("Missing ID in pack data");
 
-    console.log(`🚀 Deploying Pack: ${packId}`);
-
-    // 1. Upload to Storage
     const storagePath = `packs/${packId}.json`;
     const buffer = Buffer.from(JSON.stringify(packData), 'utf-8');
     const file = bucket.file(storagePath);
     
-    await file.save(buffer, {
-      contentType: 'application/json',
-    });
+    await file.save(buffer, { contentType: 'application/json' });
 
     const [url] = await file.getSignedUrl({
       action: 'read',
       expires: '03-01-2500',
     });
 
-    // 2. Register in Firestore
     await db.collection('packs').doc(packId).set({
       ...packData,
       downloadUrl: url,
-      updatedAt: (admin.firestore.FieldValue as unknown as { serverTimestamp: () => unknown }).serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       isActive: true
     });
 
-    return { success: true, url };
-  } catch (error: unknown) {
-    console.error("Deploy Error:", error);
-    const message = error instanceof Error ? error.message : 'Unknown deployment error';
+    return { success: true, id: packId };
+  } catch (error) {
+    console.error("Deployment Failed:", error);
+    const message = (error as Error)?.message || "Failed to register pack in Firestore";
     return { success: false, error: message };
   }
 }
