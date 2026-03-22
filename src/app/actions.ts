@@ -50,39 +50,50 @@ export async function publishDailyPack() {
   return { success: true, id: pack.id };
 }
 
+export interface AiGenerationResult {
+  suggestedTitle: string;
+  questions: Question[];
+}
+
 export async function generateQuestions(
   category: string, 
   count: number = 5,
   difficulty: string = 'Intermediate',
   title: string = ''
-): Promise<Question[]> {
+): Promise<AiGenerationResult> {
   console.log(`Generating ${count} questions for ${category} (${difficulty})...`);
   
   try {
     const prompt = `
-      Generate exactly ${count} concise and straight-to-the-point trivia questions about Nigeria.
+      You are generating trivia questions for a pack about Nigeria.
       
       CONTEXT:
-      - Pack Title: "${title}"
+      - Requested Title: "${title}"
       - Category: "${category}"
       - Difficulty: "${difficulty}"
       
-      RULES FOR DIFFICULTY & HINTS:
-      - Beginner: EVERY question MUST include a helpful "hint" (keep it simple).
-      - Intermediate: Provide a "hint" for approximately 50% of the questions (the tougher ones).
-      - Legendary: Do NOT provide any "hint" (leave as empty string).
-      
-      GENERAL RULES:
-      - Questions and options must be SHORT and DIRECT.
-      - Return a JSON array of objects with these fields:
-        {
-          "text": "string",
-          "options": ["string", "string", "string", "string"],
-          "correctAnswerIndex": number (0-3),
-          "explanation": "string",
-          "hint": "string (follow difficulty rules)",
-          "culturalContext": "string"
-        }
+      RESPONSE STRUCTURE:
+      Return a JSON object with this EXACT structure:
+      {
+        "suggestedTitle": "string (a punchy, short title if the requested title is empty)",
+        "questions": [
+          {
+            "text": "string",
+            "options": ["string", "string", "string", "string"],
+            "correctAnswerIndex": number (0-3),
+            "explanation": "string",
+            "hint": "string",
+            "culturalContext": "string"
+          }
+        ]
+      }
+
+      RULES FOR QUESTIONS:
+      1. Generate EXACTLY ${count} questions.
+      2. Concise and straight-to-the-point questions and answers.
+      3. For 'Beginner' difficulty: EVERY question MUST include a helpful "hint".
+      4. For 'Intermediate' difficulty: Provide a "hint" for ~50% of questions.
+      5. For 'Legendary' difficulty: Do NOT provide any "hint" (empty string).
     `;
     
     // Call Gemini
@@ -92,13 +103,10 @@ export async function generateQuestions(
     
     console.log("AI Response:", text);
 
-    // Clean up potential markdown code blocks if the prompt instruction fails
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    const questionsRaw = JSON.parse(cleanText);
+    const data = JSON.parse(cleanText);
 
-    // Map to ensure IDs and types are correct
-    const questions: Question[] = (questionsRaw as unknown[]).map((rawQ) => {
+    const questions: Question[] = (data.questions as unknown[]).map((rawQ) => {
         const q = rawQ as Record<string, unknown>;
         return {
             ...q as unknown as Question,
@@ -109,12 +117,14 @@ export async function generateQuestions(
         };
     });
 
-    return questions;
+    return {
+      suggestedTitle: data.suggestedTitle || title || `${category} Challenge`,
+      questions
+    };
 
   } catch (error) {
     console.error("AI Generation Failed:", error);
-    // Fallback to stub or empty for now
-    return [];
+    return { suggestedTitle: title, questions: [] };
   }
 }
 

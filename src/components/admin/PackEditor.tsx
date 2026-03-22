@@ -205,20 +205,25 @@ export default function PackEditor({ packId }: PackEditorProps) {
     if (!aiPrompt) return;
     setGenerating(true);
     try {
-      const generated = await generateQuestions(
+      const { suggestedTitle, questions } = await generateQuestions(
         formData.category, 
         aiQuestionCount, 
         formData.difficulty, 
         formData.title
       );
       
-      if (!generated || generated.length === 0) {
+      if (!questions || questions.length === 0) {
         alert('AI returned no questions. Please try a different prompt or check your API key.');
         return;
       }
 
+      // Automatically fill the title if it's currently empty
+      if (!formData.title && suggestedTitle) {
+        setFormData(prev => ({ ...prev, title: suggestedTitle }));
+      }
+
       // Map the server action's Question schema to our PackEditor schema
-      const mappedQuestions: Question[] = generated.map((q) => {
+      const mappedQuestions: Question[] = questions.map((q) => {
         const raw = q as unknown as Record<string, unknown>;
         return {
           text: q.text || '',
