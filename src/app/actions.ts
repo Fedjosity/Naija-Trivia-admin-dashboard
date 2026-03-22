@@ -232,3 +232,34 @@ export async function deployPackToFirebase(packData: Pack) {
     return { success: false, error: message };
   }
 }
+
+export async function uploadPackImage(formData: FormData) {
+  const file = formData.get('image') as File;
+  if (!file) throw new Error("No file provided");
+
+  try {
+    const { getFirebaseAdmin } = await import('@/lib/firebaseAdmin');
+    const { storage } = getFirebaseAdmin();
+    const bucket = storage.bucket();
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const fileExt = file.name.split('.').pop() || 'png';
+    const fileName = `packs/covers/${Date.now()}.${fileExt}`;
+    const gcsFile = bucket.file(fileName);
+
+    await gcsFile.save(buffer, {
+      contentType: file.type,
+      metadata: { cacheControl: 'public, max-age=31536000' }
+    });
+
+    const [url] = await gcsFile.getSignedUrl({
+      action: 'read',
+      expires: '03-01-2500',
+    });
+
+    return { success: true, url };
+  } catch (error) {
+    console.error("Image Upload Failed:", error);
+    throw new Error("Failed to upload image to Firebase Storage.");
+  }
+}

@@ -16,11 +16,10 @@ import {
   Upload
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { db, storage } from '@/lib/firebase-client';
+import { db } from '@/lib/firebase-client';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useRouter } from 'next/navigation';
-import { generateQuestions } from '@/app/actions';
+import { generateQuestions, uploadPackImage } from '@/app/actions';
 import Image from 'next/image';
 
 interface Question {
@@ -170,13 +169,16 @@ export default function PackEditor({ packId }: PackEditorProps) {
     try {
       let coverImageUrl = formData.coverImage;
 
-      // Upload cover image if a new file was selected
+      // Upload cover image to Storage via Server Action (bypasses CORS)
       if (coverImageFile) {
-        const docId = packId || doc(collection(db, 'packs')).id;
-        const ext = coverImageFile.name.split('.').pop() || 'png';
-        const storageRef = ref(storage, `packs/covers/${docId}.${ext}`);
-        await uploadBytes(storageRef, coverImageFile);
-        coverImageUrl = await getDownloadURL(storageRef);
+        const uploadFormData = new FormData();
+        uploadFormData.append('image', coverImageFile);
+        const uploadResult = await uploadPackImage(uploadFormData);
+        if (uploadResult.success && uploadResult.url) {
+          coverImageUrl = uploadResult.url;
+        } else {
+          throw new Error("Image upload failed. Please try again.");
+        }
       }
 
       const payload = {
