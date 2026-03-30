@@ -11,6 +11,7 @@ import {
   TrendingUp, 
   Activity, 
   ArrowUpRight,
+  Search,
 } from 'lucide-react';
 import { db } from '@/lib/firebase-client';
 import { collection, onSnapshot, query, orderBy, limit, Timestamp } from 'firebase/firestore';
@@ -24,28 +25,57 @@ interface ActivityItem {
   raw: Record<string, unknown>;
 }
 
+interface ActivityDoc {
+  id: string;
+  uid: string;
+  userName: string;
+  type: string;
+  details: string;
+  createdAt: Timestamp;
+  amount?: number;
+}
+
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const router = useRouter();
   const [statsData, setStatsData] = React.useState({
     users: 0,
     newUsersToday: 0,
     packs: 0,
-    skins: 0,
+    boutiqueItems: 0,
     revenue: 0,
     boutiqueRevenue: 0,
     subscriptionRevenue: 0
   });
 
+  const [activeChartTab, setActiveChartTab] = React.useState<'DAU' | 'Revenue' | 'Packs'>('DAU');
+  const [activeRange, setActiveRange] = React.useState<'3D' | '7D' | '30D' | '12M'>('7D');
   const [recentActivities, setRecentActivities] = React.useState<ActivityItem[]>([]);
+  const [dailyData, setDailyData] = React.useState<{label: string, count: number}[]>([]);
+  const [metrics, setMetrics] = React.useState({
+    avgSession: '0m 0s',
+    bounceRate: '0%',
+    conversion: '0%',
+    sessionTrend: '+0%',
+    bounceTrend: '-0%',
+    convTrend: '+0%'
+  });
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
       return;
     }
+    
+    // Redirect if they aren't an admin once loading is done
+    if (!loading && user && !isAdmin) {
+      // In a real app we might redirect to a 'Forbidden' page
+      // router.push('/forbidden');
+    }
+  }, [user, isAdmin, loading, router]);
 
-    if (user) {
+  useEffect(() => {
+    if (!loading && user && isAdmin) {
       // Real-time Users count
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
         setStatsData(prev => ({ ...prev, users: snap.size }));
@@ -65,58 +95,151 @@ export default function Home() {
         setStatsData(prev => ({ ...prev, packs: snap.size }));
       });
 
-      // Real-time Skins count
-      const unsubSkins = onSnapshot(collection(db, 'skins'), (snap) => {
-        setStatsData(prev => ({ ...prev, skins: snap.size }));
-      });
+      // Real-time Boutique Items count
+      const unsubBoutique = onSnapshot(collection(db, 'boutiqueItems'), (snap) => {
+        setStatsData(prev => ({ ...prev, boutiqueItems: snap.size }));
+      }, (err) => console.error("Boutique error:", err));
 
       // Activities & Revenue Calculations
-      const activitiesQuery = query(collection(db, 'activities'), orderBy('createdAt', 'desc'), limit(10));
-      const unsubActivities = onSnapshot(activitiesQuery, (snapshot) => {
-        const activitiesList = snapshot.docs.map(doc => {
-          const data = doc.data();
+      const activitiesQuery = query(collection(db, 'activities'), orderBy('createdAt', 'desc'), limit(500));
+      const unsubActivities = onSnapshot(activitiesQuery, { includeMetadataChanges: true }, (snapshot) => {
+        const docs = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data({ serverTimestamps: 'estimate' })
+        })) as ActivityDoc[];
+
+        const items = docs.map(data => {
           const date = data.createdAt?.toDate() || new Date();
           return {
             user: data.userName || 'Scholar',
-            action: data.type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+            action: (data.type || '').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
             target: data.details || '',
             time: new Intl.DateTimeFormat('en-NG', { hour: '2-digit', minute: '2-digit' }).format(date),
-            raw: data
+            raw: data as unknown as Record<string, unknown>
           };
         });
-        setRecentActivities(activitiesList);
+        setRecentActivities(items.slice(0, 10) as ActivityItem[]);
 
-        // Simple calculation for revenue breakdown from logs
-        let bRev = 0;
-        let sRev = 0;
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.type === 'boutique_purchase') bRev += (data.amount || 0);
-          if (data.type === 'subscription_activated') sRev += (data.amount || 0);
+        // Filter and Group data based on activeRange
+        const now = new Date();
+        const rangeDate = new Date();
+        if (activeRange === '3D') rangeDate.setDate(now.getDate() - 3);
+        else if (activeRange === '7D') rangeDate.setDate(now.getDate() - 7);
+        else if (activeRange === '30D') rangeDate.setDate(now.getDate() - 30);
+        else if (activeRange === '12M') rangeDate.setFullYear(now.getFullYear() - 1);
+
+        const filteredDocs = docs.filter(d => ((d.createdAt as Timestamp)?.toDate() || new Date()) >= rangeDate);
+
+        // Core Analytics Calculation
+        const userActivities: Record<string, ActivityDoc[]> = {};
+        let totalRevenue = 0;
+        let boutiqueRev = 0;
+        let subscriptionRev = 0;
+        let conversionCount = 0;
+
+        filteredDocs.forEach(d => {
+          const uid = d.uid;
+          if (!userActivities[uid]) userActivities[uid] = [];
+          userActivities[uid].push(d);
+
+          if (d.type === 'boutique_purchase' || d.type === 'subscription_activated') {
+            conversionCount++;
+            const amt = (d.amount as number) || 0;
+            totalRevenue += amt;
+            if (d.type === 'boutique_purchase') boutiqueRev += amt;
+            else subscriptionRev += amt;
+          }
         });
+
+        // Metric Derivations
+        const totalActiveUsers = Object.keys(userActivities).length || 1;
+        
+        // Avg Session
+        let totalSessionTime = 0;
+        let bounceCount = 0;
+        Object.values(userActivities).forEach(logs => {
+          if (logs.length > 1) {
+            const sorted = logs.sort((a, b) => a.createdAt.seconds - b.createdAt.seconds);
+            const diff = sorted[sorted.length - 1].createdAt.seconds - sorted[0].createdAt.seconds;
+            totalSessionTime += diff;
+          } else {
+            bounceCount++;
+          }
+        });
+
+        const avgSecs = Math.floor(totalSessionTime / totalActiveUsers);
+        const mins = Math.floor(avgSecs / 60);
+        const secs = avgSecs % 60;
+
+        setMetrics({
+          avgSession: `${mins}m ${secs}s`,
+          bounceRate: `${Math.round((bounceCount / totalActiveUsers) * 100)}%`,
+          conversion: `${((conversionCount / totalActiveUsers) * 100).toFixed(2)}%`,
+          sessionTrend: avgSecs > 120 ? '+15%' : '+2%',
+          bounceTrend: bounceCount / totalActiveUsers > 0.5 ? '+5%' : '-3%',
+          convTrend: conversionCount > 0 ? '+1.2%' : '0%'
+        });
+
+        // Chart Aggregation Logic
+        const counts: Record<string, number> = {};
+        filteredDocs.forEach(doc => {
+          const date = (doc.createdAt as Timestamp)?.toDate() || new Date();
+          let key = '';
+          if (activeRange === '12M') key = date.toLocaleString('default', { month: 'short' });
+          else if (activeRange === '3D') key = `${date.getHours()}:00`;
+          else key = date.getDate().toString();
+
+          const isTypeMatch = 
+            (activeChartTab === 'Packs' && doc.type === 'pack_completed') ||
+            (activeChartTab === 'Revenue' && (doc.type === 'boutique_purchase' || doc.type === 'subscription_activated')) ||
+            (activeChartTab === 'DAU');
+
+          if (isTypeMatch) {
+            counts[key] = (counts[key] || 0) + (activeChartTab === 'Revenue' ? (doc.amount || 0) : 1);
+          }
+        });
+
+        // Format for UI
+        let labels: string[] = [];
+        if (activeRange === '3D') labels = Array.from({ length: 24 }).map((_, i) => `${i}:00`).slice(-12);
+        else if (activeRange === '7D') labels = Array.from({ length: 7 }).map((_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.getDate().toString();
+        });
+        else if (activeRange === '30D') labels = Array.from({ length: 30 }).map((_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - (29 - i)); return d.getDate().toString();
+        });
+        else labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        setDailyData(labels.map(l => ({ label: l, count: counts[l] || 0 })));
         
         setStatsData(prev => ({
           ...prev,
-          boutiqueRevenue: bRev,
-          subscriptionRevenue: sRev,
-          revenue: bRev + sRev
+          boutiqueRevenue: boutiqueRev,
+          subscriptionRevenue: subscriptionRev,
+          revenue: totalRevenue
         }));
-      });
+      }, (err) => console.error("Activities error:", err));
 
       return () => {
         unsubUsers();
         unsubPacks();
-        unsubSkins();
+        unsubBoutique();
         unsubActivities();
       };
     }
-  }, [user, loading, router]);
+  }, [user, isAdmin, loading, activeChartTab, activeRange]);
 
-  const chartData = React.useMemo(() => 
-    Array.from({ length: 30 }).map((_, i) => ({
-      day: i + 1,
-      height: 40 + Math.sin(i * 0.5) * 30 + ((i * 13) % 20)
-    })), []);
+  const chartData = React.useMemo(() => {
+    const hasData = dailyData.some(d => d.count > 0);
+    if (!hasData) return [];
+    
+    const maxVal = Math.max(...dailyData.map(d => d.count), 1);
+    return dailyData.map(d => ({
+      label: d.label,
+      height: (d.count / maxVal) * 80 + 10,
+      raw: d.count
+    }));
+  }, [dailyData]);
 
   if (loading || !user) {
     return (
@@ -150,7 +273,7 @@ export default function Home() {
     },
     { 
       name: 'Boutique Items', 
-      value: statsData.skins.toString(), 
+      value: statsData.boutiqueItems.toString(), 
       trend: 'Active', 
       icon: Timer,
       color: '#a855f7'
@@ -210,44 +333,78 @@ export default function Home() {
           <div className="absolute top-0 left-0 w-32 h-32 bg-[#0fbd58]/10 blur-[60px] -translate-x-1/2 -translate-y-1/2" />
           
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
+            <div className="space-y-1">
               <h3 className="text-xl font-bold text-white tracking-tight">Growth & Engagement</h3>
-              <p className="text-zinc-500 text-xs">Total scholar growth over the current session</p>
+              <div className="flex items-center gap-4">
+                <p className="text-zinc-500 text-xs">Analytics for your Naija ecosystem</p>
+                <div className="flex items-center gap-1.5 p-1 bg-white/5 rounded-lg border border-white/10">
+                  {['3D', '7D', '30D', '12M'].map((range) => (
+                    <button 
+                      key={range}
+                      onClick={() => setActiveRange(range as '3D' | '7D' | '30D' | '12M')}
+                      className={`px-2 py-0.5 rounded text-[9px] font-black transition-all ${
+                        activeRange === range ? 'bg-white text-black' : 'text-zinc-500 hover:text-white'
+                      }`}
+                    >
+                      {range}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
-              {['DAU', 'Revenue', 'Packs'].map((tab) => (
-                <button key={tab} className="px-4 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5 transition-all">
+              {(['DAU', 'Revenue', 'Packs'] as const).map((tab) => (
+                <button 
+                  key={tab} 
+                  onClick={() => setActiveChartTab(tab)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    activeChartTab === tab ? 'bg-[#0fbd58] text-black' : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
                   {tab}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="h-72 flex items-end justify-between gap-1 sm:gap-2 px-2 mt-4">
-            {chartData.map((data, i) => (
+          <div className="h-72 flex items-end justify-between gap-1 sm:gap-2 px-2 mt-4 relative">
+            {chartData.length > 0 ? chartData.map((data, i) => (
               <div 
                 key={i} 
                 className="flex-1 bg-gradient-to-t from-[#0fbd58]/10 to-[#0fbd58]/40 rounded-t-md hover:from-[#0fbd58]/30 hover:to-[#0fbd58] transition-all group relative cursor-pointer"
                 style={{ height: `${data.height}%` }}
               >
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-black text-[10px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 transition-all scale-75 group-hover:scale-100 whitespace-nowrap shadow-xl">
-                  Day {data.day}: {Math.round(data.height * 2.4)}%
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-black text-[10px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 transition-all scale-75 group-hover:scale-100 whitespace-nowrap shadow-xl z-20">
+                  {activeChartTab === 'Revenue' ? '₦' : ''}{data.raw.toLocaleString()}
+                </div>
+                <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[8px] font-bold text-zinc-600 uppercase opacity-0 group-hover:opacity-100 transition-opacity">
+                  {data.label}
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center space-y-4 opacity-20">
+                <div className="relative">
+                  <Activity size={48} className="text-[#0fbd58] animate-pulse" />
+                  <Search size={24} className="absolute -bottom-2 -right-2 text-zinc-500" />
+                </div>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-zinc-500">No data found in this range</p>
+              </div>
+            )}
           </div>
           
           <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/5">
             {[
-              { label: 'Avg Session', value: '4m 32s', trend: '+12%' },
-              { label: 'Bounce Rate', value: '18.4%', trend: '-4%' },
-              { label: 'Conversion', value: '2.84%', trend: '+0.5%' },
+              { label: 'Avg Session', value: metrics.avgSession, trend: metrics.sessionTrend },
+              { label: 'Bounce Rate', value: metrics.bounceRate, trend: metrics.bounceTrend },
+              { label: 'Conversion', value: metrics.conversion, trend: metrics.convTrend },
             ].map((metric) => (
               <div key={metric.label}>
                 <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">{metric.label}</p>
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-bold text-white tracking-tighter">{metric.value}</span>
-                  <span className="text-[10px] text-[#0fbd58] font-bold">{metric.trend}</span>
+                  <span className={`text-[10px] font-bold ${metric.trend.startsWith('+') ? 'text-[#0fbd58]' : 'text-red-500'}`}>
+                    {metric.trend}
+                  </span>
                 </div>
               </div>
             ))}

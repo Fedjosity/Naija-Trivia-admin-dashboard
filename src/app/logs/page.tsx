@@ -7,11 +7,9 @@ import {
   Activity, 
   ArrowLeft, 
   Search, 
-  Filter, 
   Download, 
   Clock, 
   User, 
-  Tag, 
   ChevronRight,
   TrendingUp,
   CreditCard,
@@ -19,7 +17,7 @@ import {
   Library
 } from 'lucide-react';
 import { db } from '@/lib/firebase-client';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit, Timestamp } from 'firebase/firestore';
 
 interface ActivityLog {
   id: string;
@@ -27,26 +25,24 @@ interface ActivityLog {
   userName: string;
   type: string;
   details: string;
-  createdAt: any;
+  createdAt: Timestamp;
   amount?: number;
 }
 
 export default function LogsPage() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const router = useRouter();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [filteredLogs, setFilteredLogs] = useState<ActivityLog[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!authLoading && !user) {
       router.push('/login');
+      return;
     }
-  }, [user, loading, router]);
 
-  useEffect(() => {
-    if (user) {
+    if (user && isAdmin) {
       const q = query(collection(db, 'activities'), orderBy('createdAt', 'desc'), limit(100));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const logsData = snapshot.docs.map(doc => ({
@@ -54,25 +50,27 @@ export default function LogsPage() {
           ...doc.data()
         })) as ActivityLog[];
         setLogs(logsData);
-        setFilteredLogs(logsData);
+      }, (error) => {
+        console.error("Logs error:", error);
       });
 
       return () => unsubscribe();
     }
-  }, [user]);
+  }, [user, isAdmin, authLoading, router]);
 
-  useEffect(() => {
+  const filteredLogs = React.useMemo(() => {
     let result = logs;
     if (activeFilter !== 'all') {
       result = result.filter(log => log.type === activeFilter);
     }
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       result = result.filter(log => 
-        log.userName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        log.details.toLowerCase().includes(searchTerm.toLowerCase())
+        (log.userName || 'Scholar').toLowerCase().includes(term) || 
+        (log.details || '').toLowerCase().includes(term)
       );
     }
-    setFilteredLogs(result);
+    return result;
   }, [searchTerm, activeFilter, logs]);
 
   const getIcon = (type: string) => {
@@ -85,10 +83,18 @@ export default function LogsPage() {
     }
   };
 
-  if (loading || !user) {
+  if (authLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#0b0e0c]">
-        <div className="w-8 h-8 border-4 border-[#0fbd58]/30 border-t-[#0fbd58] rounded-full animate-spin" />
+      <div className="flex items-center justify-center min-h-screen bg-black">
+        <div className="text-zinc-500 animate-pulse font-mono tracking-widest uppercase text-sm">Synchronizing Logs...</div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-black">
+        <div className="text-red-500 font-mono tracking-widest uppercase text-sm">Access Restricted: Admin Only</div>
       </div>
     );
   }
@@ -194,11 +200,11 @@ export default function LogsPage() {
                     <td className="px-8 py-6">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-[#0fbd58]/20 flex items-center justify-center text-[10px] font-black text-[#0fbd58]">
-                          {log.userName[0]}
+                          {(log.userName || 'S')[0]}
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-white">{log.userName}</p>
-                          <p className="text-[10px] text-zinc-600 font-mono tracking-tighter">{log.uid.slice(0, 8)}...</p>
+                          <p className="text-sm font-bold text-white">{log.userName || 'Unknown Scholar'}</p>
+                          <p className="text-[10px] text-zinc-600 font-mono tracking-tighter">{(log.uid || 'anon').slice(0, 8)}...</p>
                         </div>
                       </div>
                     </td>
