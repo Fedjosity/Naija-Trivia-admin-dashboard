@@ -1,41 +1,43 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { 
   Users, 
-  DollarSign, 
+  CreditCard, 
   Library, 
   Timer, 
-  TrendingUp,
+  TrendingUp, 
+  Activity, 
   ArrowUpRight,
-  Activity,
-  CreditCard
 } from 'lucide-react';
 import { db } from '@/lib/firebase-client';
 import { collection, onSnapshot, query, orderBy, limit, Timestamp } from 'firebase/firestore';
+import RevenueChart from '@/components/RevenueChart';
 
-interface ActivityLog {
+interface ActivityItem {
   user: string;
   action: string;
   target: string;
   time: string;
-  type: 'completion' | 'purchase' | 'join';
+  raw: Record<string, unknown>;
 }
 
 export default function Home() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [statsData, setStatsData] = useState({
+  const [statsData, setStatsData] = React.useState({
     users: 0,
+    newUsersToday: 0,
     packs: 0,
     skins: 0,
     revenue: 0,
-    newUsersToday: 0
+    boutiqueRevenue: 0,
+    subscriptionRevenue: 0
   });
 
-  const [recentActivities, setRecentActivities] = useState<ActivityLog[]>([]);
+  const [recentActivities, setRecentActivities] = React.useState<ActivityItem[]>([]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -66,27 +68,46 @@ export default function Home() {
       // Real-time Skins count
       const unsubSkins = onSnapshot(collection(db, 'skins'), (snap) => {
         setStatsData(prev => ({ ...prev, skins: snap.size }));
-        const totalValue = snap.docs.reduce((acc, doc) => acc + (Number(doc.data().price) || 0), 0);
-        setStatsData(prev => ({ ...prev, revenue: totalValue }));
       });
 
-      // Mock Activity from real users
-      const unsubActivity = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(5)), (snap) => {
-        const logs: ActivityLog[] = snap.docs.map(doc => ({
-          user: doc.data().displayName || 'Anonymous User',
-          action: 'Joined the Tribe',
-          target: 'Naija Trivia',
-          time: 'Recently',
-          type: 'join'
+      // Activities & Revenue Calculations
+      const activitiesQuery = query(collection(db, 'activities'), orderBy('createdAt', 'desc'), limit(10));
+      const unsubActivities = onSnapshot(activitiesQuery, (snapshot) => {
+        const activitiesList = snapshot.docs.map(doc => {
+          const data = doc.data();
+          const date = data.createdAt?.toDate() || new Date();
+          return {
+            user: data.userName || 'Scholar',
+            action: data.type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+            target: data.details || '',
+            time: new Intl.DateTimeFormat('en-NG', { hour: '2-digit', minute: '2-digit' }).format(date),
+            raw: data
+          };
+        });
+        setRecentActivities(activitiesList);
+
+        // Simple calculation for revenue breakdown from logs
+        let bRev = 0;
+        let sRev = 0;
+        snapshot.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.type === 'boutique_purchase') bRev += (data.amount || 0);
+          if (data.type === 'subscription_activated') sRev += (data.amount || 0);
+        });
+        
+        setStatsData(prev => ({
+          ...prev,
+          boutiqueRevenue: bRev,
+          subscriptionRevenue: sRev,
+          revenue: bRev + sRev
         }));
-        setRecentActivities(logs);
       });
 
       return () => {
         unsubUsers();
         unsubPacks();
         unsubSkins();
-        unsubActivity();
+        unsubActivities();
       };
     }
   }, [user, loading, router]);
@@ -183,7 +204,7 @@ export default function Home() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Core Analytics */}
         <div className="lg:col-span-2 p-8 rounded-[2.5rem] bg-[#141d1a] border border-white/5 space-y-8 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-32 h-32 bg-[#0fbd58]/10 blur-[60px] -translate-x-1/2 -translate-y-1/2" />
@@ -232,6 +253,17 @@ export default function Home() {
             ))}
           </div>
         </div>
+
+        {/* Revenue Breakdown */}
+        <div className="lg:col-span-2">
+           <RevenueChart 
+             boutique={statsData.boutiqueRevenue} 
+             subscriptions={statsData.subscriptionRevenue} 
+           />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         {/* Live Feed */}
         <div className="p-8 rounded-[2.5rem] bg-[#141d1a] border border-white/5 space-y-8 relative overflow-hidden">
