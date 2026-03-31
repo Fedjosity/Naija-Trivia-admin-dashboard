@@ -10,13 +10,22 @@ import {
   Filter,
   ShieldCheck,
   ShieldAlert,
-  Wallet,
   Calendar,
   Coins
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase-client';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { 
+  handleDeletePlayerAccount 
+} from '../actions';
+import { 
+  collection, 
+  query, 
+  onSnapshot,
+  doc,
+  updateDoc,
+  serverTimestamp
+} from 'firebase/firestore';
 
 interface UserRecord {
   id: string;
@@ -42,7 +51,10 @@ export default function UsersPage() {
     }
 
     if (user) {
-      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      // We remove orderBy('createdAt') here because some users (admins) 
+      // might not have this field, and Firestore would filter them out.
+      const q = query(collection(db, 'users'));
+      
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersData = snapshot.docs.map(doc => {
           const data = doc.data();
@@ -50,13 +62,21 @@ export default function UsersPage() {
             id: doc.id,
             username: data.displayName || data.username || 'Anonymous',
             uid: data.uid || doc.id,
-            createdAt: data.createdAt,
+            createdAt: data.createdAt || data.updatedAt || null,
             score: data.stats?.totalScore || data.score || 0,
-            walletBalance: data.wallet?.naijaCoins || data.walletBalance || 0,
+            walletBalance: data.wallet?.coins || data.wallet?.naijaCoins || 0,
             status: data.status || 'Active'
           };
         }) as UserRecord[];
-        setUsers(usersData);
+
+        // Client-side sort: Descending by createdAt
+        const sortedUsers = usersData.sort((a, b) => {
+          const timeA = a.createdAt?.seconds || 0;
+          const timeB = b.createdAt?.seconds || 0;
+          return timeB - timeA;
+        });
+
+        setUsers(sortedUsers);
         setFetching(false);
       }, (err) => {
         console.error("Firestore error:", err);
@@ -65,6 +85,33 @@ export default function UsersPage() {
       return () => unsubscribe();
     }
   }, [user, loading, router]);
+
+  const onToggleBan = async (uid: string, currentStatus: string) => {
+    const newStatus = currentStatus === 'Banned' ? 'Active' : 'Banned';
+    if (!confirm(`Are you sure you want to ${currentStatus === 'Banned' ? 'unban' : 'ban'} this user?`)) return;
+    
+    try {
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      console.error("Ban update failed:", error);
+      alert("Failed to update status: " + (error.message || "Insufficient permissions. Check that you are an Admin."));
+    }
+  };
+
+  const onDeleteAccount = async (uid: string) => {
+    if (!confirm("CRITICAL: This will permanently delete the user's AUTH account and all profile data. This cannot be undone. Proceed?")) return;
+    const result = await handleDeletePlayerAccount(uid);
+    if (result.success) {
+      setUsers(prev => prev.filter(u => u.uid !== uid));
+    } else {
+      alert(result.error);
+    }
+  };
 
   if (loading || !user) return null;
 
@@ -138,7 +185,11 @@ export default function UsersPage() {
                   u.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
                   u.uid.toLowerCase().includes(searchTerm.toLowerCase())
                 ).map((u: UserRecord) => (
-                <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
+                <tr 
+                  key={u.id} 
+                  className="hover:bg-white/[0.02] transition-colors group cursor-pointer"
+                  onClick={() => router.push(`/users/${u.uid}`)}
+                >
                   <td className="px-8 py-4">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-xl bg-[#0fbd58]/10 flex items-center justify-center font-bold text-[#0fbd58] border border-[#0fbd58]/20 group-hover:scale-110 transition-transform">
@@ -183,11 +234,22 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td className="px-8 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all" title="Edit Wallet">
-                        <Wallet size={16} />
+                    <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        onClick={() => onToggleBan(u.uid, u.status)}
+                        className={cn(
+                          "p-2 bg-white/5 rounded-lg transition-all hover:bg-white/10",
+                          u.status === 'Banned' ? "text-orange-400" : "text-white"
+                        )} 
+                        title={u.status === 'Banned' ? "Unban User" : "Ban User"}
+                      >
+                        {u.status === 'Banned' ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
                       </button>
-                      <button className="p-2 bg-white/5 text-white rounded-lg hover:bg-white/10 transition-all" title="Actions">
+                      <button 
+                        onClick={() => onDeleteAccount(u.uid)}
+                        className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all" 
+                        title="Delete Permanently"
+                      >
                         <MoreVertical size={16} />
                       </button>
                     </div>

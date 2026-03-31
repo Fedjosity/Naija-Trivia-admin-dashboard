@@ -236,3 +236,53 @@ export async function uploadPackImage(formData: FormData) {
     throw new Error("Failed to upload image to Firebase Storage.");
   }
 }
+
+/**
+ * Bans a player by updating their status in Firestore.
+ */
+export async function handleBanPlayer(uid: string, currentStatus: string) {
+  const { getFirebaseAdmin } = await import('@/lib/firebaseAdmin');
+  const { db } = getFirebaseAdmin();
+  
+  try {
+    const newStatus = currentStatus === 'Banned' ? 'Active' : 'Banned';
+    await db.collection('users').doc(uid).update({
+      status: newStatus,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    return { success: true, status: newStatus };
+  } catch (error) {
+    console.error("Ban Player Failed:", error);
+    return { success: false, error: "Failed to update user status" };
+  }
+}
+
+/**
+ * Permanently deletes a player's Auth account and Firestore document.
+ */
+export async function handleDeletePlayerAccount(uid: string) {
+  const { getFirebaseAdmin } = await import('@/lib/firebaseAdmin');
+  const { auth, db } = getFirebaseAdmin();
+  
+  try {
+    // 1. Delete from Firebase Auth
+    await auth.deleteUser(uid);
+    
+    // 2. Delete from Firestore
+    await db.collection('users').doc(uid).delete();
+    
+    // Optional: Log this action in activities
+    await db.collection('activities').add({
+      type: 'admin_action',
+      details: `Permanently deleted user account: ${uid}`,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      uid: 'system_admin'
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Delete Account Failed:", error);
+    return { success: false, error: (error as Error).message };
+  }
+}

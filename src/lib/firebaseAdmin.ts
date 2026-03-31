@@ -5,15 +5,26 @@ import * as admin from 'firebase-admin';
  */
 export function getFirebaseAdmin() {
   if (!admin.apps.length) {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
-      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+    const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+    const serviceAccount = serviceAccountVar && serviceAccountVar.startsWith('{') 
+      ? JSON.parse(serviceAccountVar) 
       : null;
 
-    admin.initializeApp({
-      credential: serviceAccount ? admin.credential.cert(serviceAccount) : undefined,
+    const options: admin.AppOptions = {
       projectId: 'naija-trivia',
       storageBucket: 'naija-trivia.firebasestorage.app'
-    });
+    };
+
+    if (serviceAccount) {
+      options.credential = admin.credential.cert(serviceAccount);
+    }
+
+    try {
+      admin.initializeApp(options);
+    } catch (e) {
+      // In case of multiple workers or races, ignore re-initialization errors
+      console.warn("Firebase Admin Initialization Check:", e);
+    }
   }
   return {
     db: admin.firestore(),
