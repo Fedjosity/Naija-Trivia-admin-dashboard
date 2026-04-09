@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Scroll, ShieldAlert, Mail, Lock, Loader2 } from 'lucide-react';
+import { ShieldAlert, Mail, Lock, Loader2 } from 'lucide-react';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const { loginWithGoogle, loginWithEmail, loading } = useAuth();
@@ -36,8 +37,8 @@ export default function LoginPage() {
       <div className="z-10 w-full max-w-md p-8 rounded-[2rem] bg-white/5 border border-white/10 backdrop-blur-xl shadow-2xl mx-4">
         <div className="flex flex-col items-center text-center space-y-6">
           {/* Logo */}
-          <div className="w-16 h-16 rounded-2xl bg-[#0fbd58]/20 flex items-center justify-center border border-[#0fbd58]/30">
-            <Scroll className="text-[#0fbd58]" size={32} />
+          <div className="w-24 h-24 rounded-3xl bg-black/40 flex items-center justify-center border border-white/10 p-2 shadow-2xl relative overflow-hidden">
+            <Image src="/Logo.png" alt="Naija Trivia Logo" fill className="object-contain p-2" />
           </div>
 
           <div className="space-y-1">
